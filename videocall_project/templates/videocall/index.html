@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Video Call App</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        input, button { padding: 10px; margin: 10px 0; }
+        button { cursor: pointer; background-color: #4CAF50; color: white; border: none; }
+        .navbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .logout-btn { padding: 8px 15px; background-color: #f44336; color: white; border: none; cursor: pointer; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1>Video Call App</h1>
+        <div>
+            <span>Welcome, {{ user.username }}!</span>
+            <a href="{% url 'accounts:logout' %}" class="logout-btn">Logout</a>
+        </div>
+    </div>
+    
+    <h3>Enter a room name to join</h3>
+    <form id="roomForm">
+        <input id="roomInput" type="text" placeholder="Room name" required>
+        <button type="submit">Join Room</button>
+    </form>
+
+    <script>
+        document.getElementById('roomForm').onsubmit = function(e) {
+            e.preventDefault();
+            const roomName = document.getElementById('roomInput').value;
+            window.location.pathname = '/videocall/' + roomName;
+        };
+    </script>
+</body>
+</html>

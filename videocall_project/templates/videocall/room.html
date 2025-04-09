@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Audio Call Room</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 2rem;
+      background-color: #f0f0f0;
+    }
+    .controls button {
+      margin: 0.5rem;
+      padding: 0.6rem 1.2rem;
+      font-size: 16px;
+    }
+    #status {
+      margin-top: 1rem;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Audio Call Room: {{ room_name }}</h1>
+
+  <div>
+    <label>Username:</label>
+    <input type="text" id="username" placeholder="Enter username">
+    <button id="join">Join Room</button>
+  </div>
+
+  <div class="controls">
+    <button id="start" disabled>Start Call</button>
+    <button id="toggleAudio" disabled>Mute Mic</button>
+    <button id="hangup" disabled>Hang Up</button>
+  </div>
+
+  <div>
+    <h3>Remote Audio</h3>
+    <audio id="remoteAudio" autoplay controls></audio>
+  </div>
+
+  <div id="status"></div>
+
+  <script>
+    const roomName = "{{ room_name }}";
+
+    const joinButton = document.getElementById("join");
+    const startButton = document.getElementById("start");
+    const toggleAudioButton = document.getElementById("toggleAudio");
+    const hangupButton = document.getElementById("hangup");
+    const remoteAudio = document.getElementById("remoteAudio");
+    const usernameInput = document.getElementById("username");
+    const statusDiv = document.getElementById("status");
+
+    let localStream = null;
+    let peerConnection = null;
+    let ws = null;
+    let username = "";
+    let isAudioMuted = false;
+
+    const servers = {
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    };
+
+    joinButton.onclick = () => {
+      username = usernameInput.value.trim();
+      if (!username) return alert("Enter username");
+
+      const wsUrl = "ws://" + window.location.host + "/ws/videocall/" + roomName + "/";
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = handleSignalingData;
+
+      ws.onopen = () => {
+        statusDiv.textContent = "Connected to room: " + roomName;
+        joinButton.disabled = true;
+        startButton.disabled = false;
+      };
+
+      ws.onclose = () => {
+        statusDiv.textContent = "WebSocket connection closed.";
+      };
+    };
+
+    startButton.onclick = async () => {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      peerConnection = createPeerConnection();
+
+      localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+      });
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      ws.send(JSON.stringify({ type: "offer", offer, username }));
+
+      startButton.disabled = true;
+      toggleAudioButton.disabled = false;
+      hangupButton.disabled = false;
+      statusDiv.textContent = "Calling...";
+    };
+
+    toggleAudioButton.onclick = () => {
+      if (!localStream) return;
+      isAudioMuted = !isAudioMuted;
+      localStream.getAudioTracks()[0].enabled = !isAudioMuted;
+      toggleAudioButton.textContent = isAudioMuted ? "Unmute Mic" : "Mute Mic";
+    };
+
+    hangupButton.onclick = () => {
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+        statusDiv.textContent = "Call ended.";
+      }
+      toggleAudioButton.disabled = true;
+      hangupButton.disabled = true;
+      startButton.disabled = false;
+    };
+
+    function handleSignalingData({ data }) {
+      const msg = JSON.parse(data);
+
+      if (msg.type === "offer" && !peerConnection) {
+        navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(stream => {
+          localStream = stream;
+          peerConnection = createPeerConnection();
+          localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+          });
+
+          peerConnection.setRemoteDescription(new RTCSessionDescription(msg.offer)).then(async () => {
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            ws.send(JSON.stringify({ type: "answer", answer, username }));
+          });
+        });
+      } else if (msg.type === "answer" && peerConnection) {
+        peerConnection.setRemoteDescription(new RTCSessionDescription(msg.answer));
+      } else if (msg.type === "candidate" && peerConnection) {
+        peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      }
+    }
+
+    function createPeerConnection() {
+      const pc = new RTCPeerConnection(servers);
+
+      pc.ontrack = event => {
+        const [remoteStream] = event.streams;
+        remoteAudio.srcObject = remoteStream;
+        statusDiv.textContent = "Call connected.";
+      };
+
+      pc.onicecandidate = event => {
+        if (event.candidate) {
+          ws.send(JSON.stringify({ type: "candidate", candidate: event.candidate, username }));
+        }
+      };
+
+      return pc;
+    }
+  </script>
+</body>
+</html>
